@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cut Layout — 2D Optimizer</title>
+<style>
+  :root{
+    --bg: #12181c;
+    --panel: #1a2228;
+    --panel-2: #202a31;
+    --line: #2c3941;
+    --grid: #223038;
+    --ink: #dfe8ec;
+    --ink-dim: #8fa3ac;
+    --accent: #ff8a3d;
+    --accent-dim: #7a4a26;
+    --good: #4fd1a5;
+    --warn: #ff5f5f;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  header{
+    padding:18px 20px 14px; border-bottom:1px solid var(--line);
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  }
+  header h1{
+    font-family:var(--mono); font-size:15px; font-weight:700;
+    letter-spacing:0.5px; margin:0; color:var(--ink);
+  }
+  header h1 span{color:var(--accent);}
+  header .sub{font-family:var(--mono); font-size:11px; color:var(--ink-dim);}
+
+  .layout{ display:grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 60px); }
+  @media (max-width: 860px){ .layout{ grid-template-columns: 1fr; } }
+
+  .panel{ background:var(--panel); border-right:1px solid var(--line); padding:18px; }
+  @media (max-width: 860px){ .panel{ border-right:none; border-bottom:1px solid var(--line); } }
+
+  .field-row{ display:flex; gap:8px; margin-bottom:10px; }
+  .field{ flex:1; }
+  label{ display:block; font-family:var(--mono); font-size:10px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; }
+  input[type=number], input[type=text], select{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+    padding:7px 8px; border-radius:4px; font-family:var(--mono); font-size:13px;
+  }
+  select{ cursor:pointer; }
+  input:focus, select:focus{ outline:none; border-color:var(--accent); }
+
+  .section-title{
+    font-family:var(--mono); font-size:11px; color:var(--accent); text-transform:uppercase;
+    letter-spacing:0.8px; margin:18px 0 8px; display:flex; justify-content:space-between; align-items:center;
+  }
+
+  table.pieces{ width:100%; border-collapse:collapse; margin-bottom:8px; }
+  table.pieces th{
+    font-family:var(--mono); font-size:9px; color:var(--ink-dim); text-align:left;
+    font-weight:500; padding:4px 4px; border-bottom:1px solid var(--line); text-transform:uppercase;
+  }
+  table.pieces td{ padding:3px 3px; }
+  table.pieces input{ padding:5px 6px; font-size:12px; }
+  .col-name{width:38%;} .col-w{width:18%;} .col-h{width:18%;} .col-q{width:14%;} .col-del{width:12%; text-align:center;}
+
+  .del-btn{
+    background:none; border:1px solid var(--line); color:var(--ink-dim); border-radius:4px;
+    width:26px; height:26px; cursor:pointer; font-size:14px; line-height:1;
+  }
+  .del-btn:hover{ border-color:var(--warn); color:var(--warn); }
+
+  .add-btn, .run-btn{
+    width:100%; padding:9px; border-radius:4px; font-family:var(--mono); font-size:12px;
+    letter-spacing:0.4px; cursor:pointer; border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+  }
+  .add-btn:hover{ border-color:var(--ink-dim); }
+  .run-btn{
+    margin-top:16px; background:var(--accent); color:#1a1105; border:none; font-weight:700; padding:11px;
+  }
+  .run-btn:hover{ filter:brightness(1.08); }
+
+  .toggle-row{ display:flex; align-items:center; gap:8px; margin:12px 0 4px; }
+  .toggle-row input[type=checkbox]{ width:15px; height:15px; accent-color:var(--accent); }
+  .toggle-row label{ margin:0; font-size:11px; text-transform:none; letter-spacing:0; color:var(--ink); }
+
+  .kerf-note{ font-family:var(--mono); font-size:10px; color:var(--ink-dim); margin-top:4px; line-height:1.5; }
+
+  .stage{ padding:20px; overflow:auto; }
+  .stats-bar{
+    display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;
+  }
+  .stat{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 14px; min-width:110px;
+  }
+  .stat .v{ font-family:var(--mono); font-size:20px; font-weight:700; color:var(--ink); }
+  .stat .l{ font-family:var(--mono); font-size:9px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.6px; margin-top:2px; }
+  .stat.good .v{ color:var(--good); }
+  .stat.warn .v{ color:var(--warn); }
+
+  .sheets{ display:flex; flex-direction:column; gap:26px; }
+  .sheet-block{ }
+  .sheet-head{
+    font-family:var(--mono); font-size:12px; color:var(--ink-dim); margin-bottom:8px;
+    display:flex; justify-content:space-between; padding-right:4px;
+  }
+  .sheet-head b{ color:var(--ink); }
+  canvas{ border:1px solid var(--line); border-radius:4px; background:
+    repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 24px),
+    #0e1418;
+    max-width:100%;
+  }
+  .empty-state{
+    font-family:var(--mono); color:var(--ink-dim); font-size:13px; padding:40px 0; text-align:center;
+    border:1px dashed var(--line); border-radius:6px;
+  }
+  .legend{ display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; color:var(--ink-dim); }
+  .swatch{ width:10px; height:10px; border-radius:2px; flex:none; }
+
+  @media print{
+    body{ background:#fff; color:#111; }
+    header{ border-color:#ccc; }
+    header h1{ color:#111; }
+    header h1 span{ color:#c05a1e; }
+    header .sub{ color:#555; }
+    .panel{ display:none; }
+    .layout{ grid-template-columns: 1fr; }
+    .stage{ padding:0; }
+    .stats-bar{ margin-bottom:14px; }
+    .stat{ background:#f5f5f5; border-color:#ddd; }
+    .stat .v{ color:#111; }
+    .stat .l{ color:#666; }
+    .sheets{ gap:0; }
+    .sheet-block{ page-break-inside: avoid; page-break-after: always; padding-top:8px; }
+    .sheet-block:last-of-type{ page-break-after: auto; }
+    .sheet-head{ color:#333; }
+    .sheet-head b{ color:#111; }
+    canvas{ border-color:#999; max-width:100%; height:auto; }
+    .legend{ page-break-before: avoid; }
+    .legend-item{ color:#444; }
+    .empty-state{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CUT<span>/</span>LAYOUT</h1>
+  <div class="sub">2D nesting optimizer — guillotine cut algorithm</div>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="section-title">Sheet size</div>
+    <div class="field-row">
+      <div class="field">
+        <label>Width</label>
+        <input type="number" id="sheetW" value="1230" min="1">
+      </div>
+      <div class="field">
+        <label>Height</label>
+        <input type="number" id="sheetH" value="3500" min="1">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Packing algorithm</label>
+        <select id="algoSelect">
+          <option value="maxrects">MaxRects (fills gaps better)</option>
+          <option value="skyline">Skyline (height-profile fit)</option>
+          <option value="guillotine" selected>Guillotine (straight cuts only)</option>
+        </select>
+      </div>
+    </div>
+    <div class="kerf-note" id="algoNote">Guillotine: ตัดเป็นเส้นตรงยาวตลอดแผ่นทุกครั้ง เหมาะกับเครื่องตัด/เลื่อยที่ตัดได้แค่แนวตรง</div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="allowRotate">
+      <label for="allowRotate">Allow piece rotation 90°</label>
+    </div>
+    <div class="field-row" style="margin-top:6px;">
+      <div class="field">
+        <label>Kerf / gap (blade width)</label>
+        <input type="number" id="kerf" value="3" min="0">
+      </div>
+    </div>
+    <div class="kerf-note">ระยะกันเผื่อใบตัด/ช่องว่างระหว่างชิ้นงาน (หน่วยเดียวกับขนาดแผ่น)</div>
+
+    <div class="field-row" style="margin-top:6px;">
+      <div class="field">
+        <label>Trim (edge margin)</label>
+        <input type="number" id="trim" value="5" min="0">
+      </div>
+    </div>
+    <div class="kerf-note">ตัดขอบแผ่นทิ้งรอบด้าน (บน/ล่าง/ซ้าย/ขวา) ก่อนเริ่มจัดวางชิ้นงาน — เผื่อขอบไม่เรียบ/บิ่น</div>
+
+    <div class="section-title">
+      <span>Pieces to cut</span>
+    </div>
+    <table class="pieces">
+      <thead>
+        <tr>
+          <th class="col-name">Name</th>
+          <th class="col-w">W</th>
+          <th class="col-h">H</th>
+          <th class="col-q">Qty</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="pieceRows"></tbody>
+    </table>
+    <button class="add-btn" id="addRow">+ Add piece</button>
+
+    <button class="run-btn" id="runBtn">▶ Calculate layout</button>
+    <button class="add-btn" id="printBtn" style="margin-top:8px;">🖨 Print / Save as PDF</button>
+  </div>
+
+  <div class="stage">
+    <div class="stats-bar" id="statsBar" style="display:none;"></div>
+    <div id="output"><div class="empty-state">กรอกขนาดแผ่นและรายการชิ้นงาน แล้วกด Calculate layout</div></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#ff8a3d','#4fd1a5','#5fb0ff','#e0d15f','#c98bff','#ff6b8a','#7bd3d3','#f0a35e','#8fd15f','#d17bcf'];
+
+const pieceRows = document.getElementById('pieceRows');
+
+function addRow(name, w, h, q){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="p-name" value="${name ?? ''}" placeholder="piece"></td>
+    <td><input type="number" class="p-w" value="${w ?? ''}" min="1"></td>
+    <td><input type="number" class="p-h" value="${h ?? ''}" min="1"></td>
+    <td><input type="number" class="p-q" value="${q ?? 1}" min="1"></td>
+    <td class="col-del"><button class="del-btn" title="remove">✕</button></td>
+  `;
+  tr.querySelector('.del-btn').onclick = () => tr.remove();
+  pieceRows.appendChild(tr);
+}
+
+// starter example rows
+addRow('Shelf', 600, 400, 10);
+addRow('Side panel', 300, 400, 5);
+addRow('Door', 450, 720, 5);
+addRow('Back panel', 600, 720, 15);
+
+document.getElementById('addRow').onclick = () => addRow('', '', '', 1);
+
+// ---------- MaxRects packer (Best Short-Side Fit) ----------
+function rectsIntersect(a, b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+function isContained(a, b){
+  return a.x >= b.x && a.y >= b.y && (a.x+a.w) <= (b.x+b.w) && (a.y+a.h) <= (b.y+b.h);
+}
+function splitFreeRectByPlaced(fr, placed){
+  if(!rectsIntersect(fr, placed)) return [fr];
+  const out = [];
+  if(placed.x > fr.x){
+    out.push({x:fr.x, y:fr.y, w:placed.x-fr.x, h:fr.h});
+  }
+  if(placed.x+placed.w < fr.x+fr.w){
+    out.push({x:placed.x+placed.w, y:fr.y, w:(fr.x+fr.w)-(placed.x+placed.w), h:fr.h});
+  }
+  if(placed.y > fr.y){
+    out.push({x:fr.x, y:fr.y, w:fr.w, h:placed.y-fr.y});
+  }
+  if(placed.y+placed.h < fr.y+fr.h){
+    out.push({x:fr.x, y:placed.y+placed.h, w:fr.w, h:(fr.y+fr.h)-(placed.y+placed.h)});
+  }
+  return out;
+}
+function pruneFreeRects(rects){
+  const seen = new Set();
+  const unique = [];
+  for(const r of rects){
+    if(r.w <= 0 || r.h <= 0) continue;
+    const key = `${r.x},${r.y},${r.w},${r.h}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    unique.push(r);
+  }
+  const out = [];
+  for(let i=0;i<unique.length;i++){
+    let contained = false;
+    for(let j=0;j<unique.length;j++){
+      if(i===j) continue;
+      if(isContained(unique[i], unique[j])){ contained = true; break; }
+    }
+    if(!contained) out.push(unique[i]);
+  }
+  return out;
+}
+
+function packSheetsMaxRects(sheetW, sheetH, pieces, allowRotate, kerf, trim){
+  const items = [...pieces].sort((a,b)=> (b.w*b.h) - (a.w*a.h));
+  const sheets = [];
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+
+  function newSheet(){
+    return { freeRects: [{x:trim, y:trim, w: usableW, h: usableH}], placed: [] };
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let best = null, bestScore = Infinity;
+    for(const fr of sheet.freeRects){
+      const fw1 = item.w + kerf, fh1 = item.h + kerf;
+      if(fw1 <= fr.w && fh1 <= fr.h){
+        const score = Math.min(fr.w - fw1, fr.h - fh1);
+        if(score < bestScore){ bestScore = score; best = { fr, footW: fw1, footH: fh1, pieceW: item.w, pieceH: item.h, rot: false }; }
+      }
+      if(allowRotate){
+        const fw2 = item.h + kerf, fh2 = item.w + kerf;
+        if(fw2 <= fr.w && fh2 <= fr.h){
+          const score = Math.min(fr.w - fw2, fr.h - fh2);
+          if(score < bestScore){ bestScore = score; best = { fr, footW: fw2, footH: fh2, pieceW: item.h, pieceH: item.w, rot: true }; }
+        }
+      }
+    }
+    if(!best) return false;
+
+    const placedFoot = { x: best.fr.x, y: best.fr.y, w: best.footW, h: best.footH };
+    sheet.placed.push({ x: best.fr.x, y: best.fr.y, w: best.pieceW, h: best.pieceH, name: item.name, rot: best.rot, color: item.color });
+
+    let newFree = [];
+    for(const fr of sheet.freeRects){
+      newFree.push(...splitFreeRectByPlaced(fr, placedFoot));
+    }
+    sheet.freeRects = pruneFreeRects(newFree);
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets, tooBig };
+}
+
+
+// ---------- Guillotine packer (straight full-length cuts) ----------
+function packSheetsGuillotine(sheetW, sheetH, pieces, allowRotate, kerf, trim){
+  const items = [...pieces].sort((a,b)=> (b.w*b.h) - (a.w*a.h));
+  const sheets = [];
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+
+  function newSheet(){
+    return { freeRects: [{x:trim, y:trim, w: usableW, h: usableH}], placed: [] };
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let bestIdx = -1, bestRot = false, bestScore = Infinity, bestW=0, bestH=0;
+    for(let i=0;i<sheet.freeRects.length;i++){
+      const fr = sheet.freeRects[i];
+      if(item.w <= fr.w && item.h <= fr.h){
+        const leftoverW = fr.w - item.w, leftoverH = fr.h - item.h;
+        const score = Math.min(leftoverW, leftoverH);
+        if(score < bestScore){ bestScore = score; bestIdx = i; bestRot=false; bestW=item.w; bestH=item.h; }
+      }
+      if(allowRotate && item.h <= fr.w && item.w <= fr.h){
+        const leftoverW = fr.w - item.h, leftoverH = fr.h - item.w;
+        const score = Math.min(leftoverW, leftoverH);
+        if(score < bestScore){ bestScore = score; bestIdx = i; bestRot=true; bestW=item.h; bestH=item.w; }
+      }
+    }
+    if(bestIdx === -1) return false;
+
+    const fr = sheet.freeRects[bestIdx];
+    const placedW = bestW + kerf, placedH = bestH + kerf;
+    const usedW = Math.min(placedW, fr.w);
+    const usedH = Math.min(placedH, fr.h);
+
+    sheet.placed.push({ x: fr.x, y: fr.y, w: bestW, h: bestH, name: item.name, rot: bestRot, color: item.color });
+
+    const remW = fr.w - usedW;
+    const remH = fr.h - usedH;
+    sheet.freeRects.splice(bestIdx, 1);
+
+    if(remW > 0 && remH > 0){
+      if(remW * fr.h > remH * fr.w){
+        sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: fr.h});
+        sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: usedW, h: remH});
+      } else {
+        sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: fr.w, h: remH});
+        sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: usedH});
+      }
+    } else if(remW > 0){
+      sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: fr.h});
+    } else if(remH > 0){
+      sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: fr.w, h: remH});
+    }
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets, tooBig };
+}
+
+// ---------- Skyline packer (Bottom-Left, height profile) ----------
+function packSheetsSkyline(sheetW, sheetH, pieces, allowRotate, kerf, trim){
+  const items = [...pieces].sort((a,b)=> (b.w*b.h) - (a.w*a.h));
+  const sheets = [];
+  const eps = 1e-6;
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+  const xMin = trim, xMax = trim + usableW;
+  const yMax = trim + usableH;
+
+  function newSheet(){
+    return { skyline: [{x:xMin, w:usableW, y:trim}], placed: [] };
+  }
+
+  function computeYAt(skyline, x, width){
+    let idx = skyline.findIndex(s => x >= s.x - eps && x < s.x + s.w - eps);
+    if(idx === -1) return null;
+    let y = 0, widthLeft = width, curX = x;
+    while(widthLeft > eps){
+      if(idx >= skyline.length) return null;
+      const seg = skyline[idx];
+      if(seg.x > curX + eps) return null;
+      y = Math.max(y, seg.y);
+      const avail = (seg.x + seg.w) - curX;
+      const use = Math.min(avail, widthLeft);
+      widthLeft -= use;
+      curX += use;
+      idx++;
+    }
+    return y;
+  }
+
+  function updateSkyline(skyline, x, width, newY){
+    const xEnd = x + width;
+    let result = [];
+    for(const seg of skyline){
+      const segEnd = seg.x + seg.w;
+      if(segEnd <= x + eps || seg.x >= xEnd - eps){
+        result.push(seg);
+      } else {
+        if(seg.x < x - eps) result.push({x:seg.x, w:x-seg.x, y:seg.y});
+        if(segEnd > xEnd + eps) result.push({x:xEnd, w:segEnd-xEnd, y:seg.y});
+      }
+    }
+    result.push({x, w:width, y:newY});
+    result.sort((a,b)=>a.x-b.x);
+    const merged = [];
+    for(const seg of result){
+      const last = merged[merged.length-1];
+      if(last && Math.abs(last.y-seg.y) < eps && Math.abs((last.x+last.w)-seg.x) < 1e-4){
+        last.w += seg.w;
+      } else {
+        merged.push({...seg});
+      }
+    }
+    return merged;
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let best = null;
+    const candidateWidths = [
+      { w: item.w, h: item.h, rot: false },
+      ...(allowRotate ? [{ w: item.h, h: item.w, rot: true }] : [])
+    ];
+    for(const cand of candidateWidths){
+      const footW = cand.w + kerf, footH = cand.h + kerf;
+      if(footW > usableW + eps) continue;
+      for(const seg of sheet.skyline){
+        const x = seg.x;
+        if(x + footW > xMax + eps) continue;
+        const y = computeYAt(sheet.skyline, x, footW);
+        if(y === null) continue;
+        if(y + footH > yMax + eps) continue;
+        if(!best || y < best.y - eps || (Math.abs(y-best.y) < eps && x < best.x - eps)){
+          best = { x, y, footW, footH, pieceW: cand.w, pieceH: cand.h, rot: cand.rot };
+        }
+      }
+    }
+    if(!best) return false;
+    sheet.placed.push({ x: best.x, y: best.y, w: best.pieceW, h: best.pieceH, name: item.name, rot: best.rot, color: item.color });
+    sheet.skyline = updateSkyline(sheet.skyline, best.x, best.footW, best.y + best.footH);
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets: sheets.map(s => ({ freeRects: [], placed: s.placed })), tooBig };
+}
+
+function packSheets(algo, sheetW, sheetH, pieces, allowRotate, kerf, trim){
+  if(algo === 'guillotine') return packSheetsGuillotine(sheetW, sheetH, pieces, allowRotate, kerf, trim);
+  if(algo === 'skyline') return packSheetsSkyline(sheetW, sheetH, pieces, allowRotate, kerf, trim);
+  return packSheetsMaxRects(sheetW, sheetH, pieces, allowRotate, kerf, trim);
+}
+
+// ---------- UI wiring ----------
+function readPieces(){
+  const rows = [...pieceRows.querySelectorAll('tr')];
+  const pieces = [];
+  let colorIdx = 0;
+  for(const row of rows){
+    const name = row.querySelector('.p-name').value.trim() || 'piece';
+    const w = parseFloat(row.querySelector('.p-w').value);
+    const h = parseFloat(row.querySelector('.p-h').value);
+    const q = parseInt(row.querySelector('.p-q').value) || 0;
+    if(!w || !h || !q) continue;
+    const color = COLORS[colorIdx % COLORS.length];
+    colorIdx++;
+    for(let i=0;i<q;i++){
+      pieces.push({ w, h, name, color });
+    }
+  }
+  return pieces;
+}
+
+function drawSheet(canvasHolder, sheet, sheetW, sheetH, sheetIdx, trim){
+  const maxCanvasW = 760;
+  const scale = Math.min(maxCanvasW / sheetW, 640 / sheetH, 1);
+  const cw = Math.max(1, Math.round(sheetW * scale));
+  const ch = Math.max(1, Math.round(sheetH * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0,0,cw,ch);
+
+  // trim margin — hatched dead zone around the edge
+  if(trim > 0){
+    const t = trim * scale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0,0,cw,ch);
+    ctx.rect(t, t, cw-2*t, ch-2*t);
+    ctx.clip('evenodd');
+    ctx.fillStyle = '#0e1418';
+    ctx.fillRect(0,0,cw,ch);
+    ctx.strokeStyle = '#3a2a1a';
+    ctx.lineWidth = 1;
+    for(let x = -ch; x < cw; x += 8){
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x+ch, ch);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#5a3d20';
+    ctx.setLineDash([4,3]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(t, t, cw-2*t, ch-2*t);
+    ctx.setLineDash([]);
+  }
+
+  let usedArea = 0;
+  for(const p of sheet.placed){
+    const x = p.x*scale, y = p.y*scale, w = p.w*scale, h = p.h*scale;
+    ctx.fillStyle = p.color + 'cc';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#0e1418';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
+    usedArea += p.w * p.h;
+
+    // label
+    if(w > 34 && h > 16){
+      ctx.fillStyle = '#111';
+      ctx.font = '600 11px monospace';
+      ctx.textBaseline = 'top';
+      const label = p.name;
+      const dims = `${Math.round(p.w)}×${Math.round(p.h)}${p.rot ? ' ↻' : ''}`;
+      ctx.fillText(label, x+4, y+3, w-8);
+      if(h > 30) ctx.fillText(dims, x+4, y+16, w-8);
+    }
+  }
+
+  // sheet border
+  ctx.strokeStyle = '#3a4a54';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0,0,cw,ch);
+
+  const util = (usedArea / (sheetW*sheetH) * 100).toFixed(1);
+
+  const block = document.createElement('div');
+  block.className = 'sheet-block';
+  block.innerHTML = `<div class="sheet-head"><span>Sheet <b>#${sheetIdx+1}</b> — ${sheetW}×${sheetH}</span><span>utilization: <b style="color:${util>75?'#4fd1a5':(util>45?'#e0d15f':'#ff5f5f')}">${util}%</b></span></div>`;
+  block.appendChild(canvas);
+  canvasHolder.appendChild(block);
+  return { usedArea, util: parseFloat(util) };
+}
+
+function run(){
+  const sheetW = parseFloat(document.getElementById('sheetW').value);
+  const sheetH = parseFloat(document.getElementById('sheetH').value);
+  const allowRotate = document.getElementById('allowRotate').checked;
+  const kerf = parseFloat(document.getElementById('kerf').value) || 0;
+  const trim = parseFloat(document.getElementById('trim').value) || 0;
+  const algo = document.getElementById('algoSelect').value;
+
+  const output = document.getElementById('output');
+  const statsBar = document.getElementById('statsBar');
+  output.innerHTML = '';
+
+  if(!sheetW || !sheetH){
+    output.innerHTML = '<div class="empty-state">กรุณากรอกขนาดแผ่นให้ถูกต้อง</div>';
+    statsBar.style.display = 'none';
+    return;
+  }
+
+  const pieces = readPieces();
+  if(pieces.length === 0){
+    output.innerHTML = '<div class="empty-state">เพิ่มชิ้นงานอย่างน้อย 1 รายการ</div>';
+    statsBar.style.display = 'none';
+    return;
+  }
+
+  const { sheets, tooBig } = packSheets(algo, sheetW, sheetH, pieces, allowRotate, kerf, trim);
+
+  const sheetsDiv = document.createElement('div');
+  sheetsDiv.className = 'sheets';
+
+  let totalUsed = 0;
+  sheets.forEach((s, i) => {
+    const { usedArea } = drawSheet(sheetsDiv, s, sheetW, sheetH, i, trim);
+    totalUsed += usedArea;
+  });
+
+  // legend
+  const names = {};
+  pieces.forEach(p => { names[p.name] = p.color; });
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  Object.entries(names).forEach(([name, color]) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="swatch" style="background:${color}"></span>${name}`;
+    legend.appendChild(item);
+  });
+  if(trim > 0){
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="swatch" style="background:#0e1418;border:1px dashed #5a3d20"></span>trim margin (${trim})`;
+    legend.appendChild(item);
+  }
+  sheetsDiv.appendChild(legend);
+
+  if(tooBig.length){
+    const warn = document.createElement('div');
+    warn.className = 'empty-state';
+    warn.style.borderColor = '#5a2a2a';
+    warn.style.color = '#ff9d9d';
+    const list = tooBig.map(p => `${p.name} (${p.w}×${p.h})`).join(', ');
+    warn.textContent = `⚠ ชิ้นงานต่อไปนี้ใหญ่เกินกว่าจะวางบนแผ่นได้: ${list}`;
+    sheetsDiv.appendChild(warn);
+  }
+
+  output.appendChild(sheetsDiv);
+
+  const totalSheetArea = sheets.length * sheetW * sheetH;
+  const overallUtil = totalSheetArea ? (totalUsed/totalSheetArea*100).toFixed(1) : 0;
+
+  statsBar.style.display = 'flex';
+  statsBar.innerHTML = `
+    <div class="stat"><div class="v">${sheets.length}</div><div class="l">Sheets needed</div></div>
+    <div class="stat"><div class="v">${pieces.length}</div><div class="l">Total pieces</div></div>
+    <div class="stat ${overallUtil>75?'good':(overallUtil<45?'warn':'')}"><div class="v">${overallUtil}%</div><div class="l">Material utilization</div></div>
+    <div class="stat"><div class="v">${(100-overallUtil).toFixed(1)}%</div><div class="l">Waste</div></div>
+    <div class="stat"><div class="v" style="font-size:14px;">${algo === 'guillotine' ? 'Guillotine' : (algo === 'skyline' ? 'Skyline' : 'MaxRects')}</div><div class="l">Algorithm</div></div>
+  `;
+}
+
+document.getElementById('algoSelect').onchange = (e) => {
+  const notes = {
+    guillotine: 'Guillotine: ตัดเป็นเส้นตรงยาวตลอดแผ่นทุกครั้ง เหมาะกับเครื่องตัด/เลื่อยที่ตัดได้แค่แนวตรง',
+    skyline: 'Skyline: จัดวางตามเส้นขอบฟ้าความสูง เร็วและได้ผลดีกว่า guillotine เล็กน้อย รูปแบบการตัดซับซ้อนกว่าเส้นตรงยาว',
+    maxrects: 'MaxRects: อุดช่องว่างเก่งกว่า เศษเหลือน้อยกว่า'
+  };
+  document.getElementById('algoNote').textContent = notes[e.target.value] || notes.maxrects;
+};
+
+document.getElementById('runBtn').onclick = run;
+document.getElementById('printBtn').onclick = () => {
+  if(!document.querySelector('.sheet-block')){
+    alert('กรุณากด Calculate layout ก่อน แล้วค่อย Print');
+    return;
+  }
+  window.print();
+};
+</script>
+</body>
+</html>
