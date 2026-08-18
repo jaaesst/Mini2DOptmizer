@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cut Layout — 2D Optimizer</title>
+<style>
+  :root{
+    --bg: #12181c;
+    --panel: #1a2228;
+    --panel-2: #202a31;
+    --line: #2c3941;
+    --grid: #223038;
+    --ink: #dfe8ec;
+    --ink-dim: #8fa3ac;
+    --accent: #ff8a3d;
+    --accent-dim: #7a4a26;
+    --good: #4fd1a5;
+    --warn: #ff5f5f;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  header{
+    padding:18px 20px 14px; border-bottom:1px solid var(--line);
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  }
+  header h1{
+    font-family:var(--mono); font-size:15px; font-weight:700;
+    letter-spacing:0.5px; margin:0; color:var(--ink);
+  }
+  header h1 span{color:var(--accent);}
+  header .sub{font-family:var(--mono); font-size:11px; color:var(--ink-dim);}
+
+  .layout{ display:grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 60px); }
+  @media (max-width: 860px){ .layout{ grid-template-columns: 1fr; } }
+
+  .panel{ background:var(--panel); border-right:1px solid var(--line); padding:18px; }
+  @media (max-width: 860px){ .panel{ border-right:none; border-bottom:1px solid var(--line); } }
+
+  .field-row{ display:flex; gap:8px; margin-bottom:10px; }
+  .field{ flex:1; }
+  label{ display:block; font-family:var(--mono); font-size:10px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; }
+  input[type=number], input[type=text], select{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+    padding:7px 8px; border-radius:4px; font-family:var(--mono); font-size:13px;
+  }
+  select{ cursor:pointer; }
+  input:focus, select:focus{ outline:none; border-color:var(--accent); }
+  /* remove number-input spinner arrows — they were eating horizontal space and clipping digits */
+  input[type=number]{ -moz-appearance: textfield; }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{ -webkit-appearance: none; margin:0; }
+
+  .section-title{
+    font-family:var(--mono); font-size:11px; color:var(--accent); text-transform:uppercase;
+    letter-spacing:0.8px; margin:18px 0 8px; display:flex; justify-content:space-between; align-items:center;
+  }
+
+  table.pieces{ width:100%; border-collapse:collapse; margin-bottom:8px; }
+  table.pieces th{
+    font-family:var(--mono); font-size:9px; color:var(--ink-dim); text-align:left;
+    font-weight:500; padding:4px 4px; border-bottom:1px solid var(--line); text-transform:uppercase;
+  }
+  table.pieces td{ padding:3px 3px; }
+  table.pieces input{ padding:5px 6px; font-size:12px; }
+  .col-name{width:38%;} .col-w{width:18%;} .col-h{width:18%;} .col-q{width:14%;} .col-del{width:12%; text-align:center;}
+
+  .del-btn{
+    background:none; border:1px solid var(--line); color:var(--ink-dim); border-radius:4px;
+    width:26px; height:26px; cursor:pointer; font-size:14px; line-height:1;
+  }
+  .del-btn:hover{ border-color:var(--warn); color:var(--warn); }
+
+  .add-btn, .run-btn{
+    width:100%; padding:9px; border-radius:4px; font-family:var(--mono); font-size:12px;
+    letter-spacing:0.4px; cursor:pointer; border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+  }
+  .add-btn:hover{ border-color:var(--ink-dim); }
+  .run-btn{
+    margin-top:16px; background:var(--accent); color:#1a1105; border:none; font-weight:700; padding:11px;
+  }
+  .run-btn:hover{ filter:brightness(1.08); }
+
+  .toggle-row{ display:flex; align-items:center; gap:8px; margin:12px 0 4px; }
+  .toggle-row input[type=checkbox]{ width:15px; height:15px; accent-color:var(--accent); }
+  .toggle-row label{ margin:0; font-size:11px; text-transform:none; letter-spacing:0; color:var(--ink); }
+
+  .kerf-note{ font-family:var(--mono); font-size:10px; color:var(--ink-dim); margin-top:4px; line-height:1.5; }
+  .gap-info{
+    margin-top:8px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--accent-dim);
+    border-radius:6px; font-family:var(--mono); font-size:12px; color:var(--ink); line-height:1.6;
+    max-width:280px;
+  }
+  .gap-info b{ color:var(--accent); }
+  .gap-info input{ font-size:12px; padding:6px 7px; margin:0; }
+  .gap-info button{
+    margin-top:8px; padding:7px 12px; background:var(--accent); color:#1a1105; border:none;
+    border-radius:4px; font-family:var(--mono); font-size:11px; font-weight:700; cursor:pointer;
+    width:100%;
+  }
+  .gap-info button:hover{ filter:brightness(1.08); }
+
+  .stage{ padding:20px; overflow:auto; }
+  .stats-bar{
+    display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;
+  }
+  .stat{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 14px; min-width:110px;
+  }
+  .stat .v{ font-family:var(--mono); font-size:20px; font-weight:700; color:var(--ink); }
+  .stat .l{ font-family:var(--mono); font-size:9px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.6px; margin-top:2px; }
+  .stat.good .v{ color:var(--good); }
+  .stat.warn .v{ color:var(--warn); }
+
+  .sheets{ display:flex; flex-direction:column; gap:26px; }
+  .sheet-block{ }
+  .sheet-head{
+    font-family:var(--mono); font-size:12px; color:var(--ink-dim); margin-bottom:8px;
+    display:flex; justify-content:space-between; padding-right:4px;
+  }
+  .sheet-head b{ color:var(--ink); }
+  canvas{ border:1px solid var(--line); border-radius:4px; background:
+    repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 24px),
+    #0e1418;
+    max-width:100%;
+  }
+  .empty-state{
+    font-family:var(--mono); color:var(--ink-dim); font-size:13px; padding:40px 0; text-align:center;
+    border:1px dashed var(--line); border-radius:6px;
+  }
+  .legend{ display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; color:var(--ink-dim); }
+  .swatch{ width:10px; height:10px; border-radius:2px; flex:none; }
+
+  @media print{
+    body{ background:#fff; color:#111; }
+    header{ border-color:#ccc; }
+    header h1{ color:#111; }
+    header h1 span{ color:#c05a1e; }
+    header .sub{ color:#555; }
+    .panel{ display:none; }
+    .layout{ grid-template-columns: 1fr; }
+    .stage{ padding:0; }
+    .stats-bar{ margin-bottom:14px; }
+    .stat{ background:#f5f5f5; border-color:#ddd; }
+    .stat .v{ color:#111; }
+    .stat .l{ color:#666; }
+    .sheets{ gap:0; }
+    .sheet-block{ page-break-inside: avoid; page-break-after: always; padding-top:8px; }
+    .sheet-block:last-of-type{ page-break-after: auto; }
+    .sheet-head{ color:#333; }
+    .sheet-head b{ color:#111; }
+    canvas{ border-color:#999; max-width:100%; height:auto; }
+    .legend{ page-break-before: avoid; }
+    .legend-item{ color:#444; }
+    .empty-state{ display:none; }
+    .sheet-block .kerf-note{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CUT<span>/</span>LAYOUT</h1>
+  <div class="sub">2D nesting optimizer — guillotine cut algorithm</div>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="section-title">Sheet size</div>
+    <div class="field-row">
+      <div class="field">
+        <label>Width</label>
+        <input type="number" id="sheetW" value="1230" min="1">
+      </div>
+      <div class="field">
+        <label>Length</label>
+        <input type="number" id="sheetH" value="3500" min="1">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Packing algorithm</label>
+        <select id="algoSelect">
+          <option value="maxrects">MaxRects (fills gaps better)</option>
+          <option value="skyline">Skyline (height-profile fit)</option>
+          <option value="guillotine" selected>Guillotine (straight cuts only)</option>
+        </select>
+      </div>
+    </div>
+    <div class="kerf-note" id="algoNote">Guillotine: ตัดเป็นเส้นตรงยาวตลอดแผ่นทุกครั้ง เหมาะกับเครื่องตัด/เลื่อยที่ตัดได้แค่แนวตรง</div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="allowRotate">
+      <label for="allowRotate">Allow piece rotation 90°</label>
+    </div>
+    <div class="field-row" style="margin-top:6px;">
+      <div class="field">
+        <label>Kerf / gap (blade width)</label>
+        <input type="number" id="kerf" value="3" min="0">
+      </div>
+    </div>
+    <div class="kerf-note">ระยะกันเผื่อใบตัด/ช่องว่างระหว่างชิ้นงาน (หน่วยเดียวกับขนาดแผ่น)</div>
+
+    <div class="field-row" style="margin-top:6px;">
+      <div class="field">
+        <label>Trim (edge margin)</label>
+        <input type="number" id="trim" value="5" min="0">
+      </div>
+    </div>
+    <div class="kerf-note">ตัดขอบแผ่นทิ้งรอบด้าน (บน/ล่าง/ซ้าย/ขวา) ก่อนเริ่มจัดวางชิ้นงาน — เผื่อขอบไม่เรียบ/บิ่น</div>
+
+    <div class="section-title">
+      <span>Pieces to cut</span>
+    </div>
+    <table class="pieces">
+      <thead>
+        <tr>
+          <th class="col-name">Name</th>
+          <th class="col-w">W</th>
+          <th class="col-h">L</th>
+          <th class="col-q">Qty</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="pieceRows"></tbody>
+    </table>
+    <button class="add-btn" id="addRow">+ Add piece</button>
+
+    <button class="run-btn" id="runBtn">▶ Calculate layout</button>
+    <button class="add-btn" id="shakeBtn" style="margin-top:8px;">🔀 Shake (random rearrange)</button>
+    <button class="add-btn" id="printBtn" style="margin-top:8px;">🖨 Print / Save as PDF</button>
+  </div>
+
+  <div class="stage">
+    <div class="stats-bar" id="statsBar" style="display:none;"></div>
+    <div id="output"><div class="empty-state">กรอกขนาดแผ่นและรายการชิ้นงาน แล้วกด Calculate layout</div></div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#ff8a3d','#4fd1a5','#5fb0ff','#e0d15f','#c98bff','#ff6b8a','#7bd3d3','#f0a35e','#8fd15f','#d17bcf'];
+
+const pieceRows = document.getElementById('pieceRows');
+
+function addRow(name, w, h, q){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="p-name" value="${name ?? ''}" placeholder="piece"></td>
+    <td><input type="number" class="p-w" value="${w ?? ''}" min="1"></td>
+    <td><input type="number" class="p-h" value="${h ?? ''}" min="1"></td>
+    <td><input type="number" class="p-q" value="${q ?? 1}" min="1"></td>
+    <td class="col-del"><button class="del-btn" title="remove">✕</button></td>
+  `;
+  tr.querySelector('.del-btn').onclick = () => {
+    tr.remove();
+    // if a layout is already showing, refresh it so the deleted piece disappears immediately
+    if(document.querySelector('#output .sheet-block')){
+      run(false);
+    }
+  };
+  pieceRows.appendChild(tr);
+}
+
+// starter example rows
+addRow('Shelf', 600, 400, 10);
+addRow('Side panel', 300, 400, 5);
+addRow('Door', 450, 720, 5);
+addRow('Back panel', 600, 720, 15);
+
+document.getElementById('addRow').onclick = () => addRow('', '', '', 1);
+
+// ---------- MaxRects packer (Best Short-Side Fit) ----------
+function rectsIntersect(a, b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+function isContained(a, b){
+  return a.x >= b.x && a.y >= b.y && (a.x+a.w) <= (b.x+b.w) && (a.y+a.h) <= (b.y+b.h);
+}
+function splitFreeRectByPlaced(fr, placed){
+  if(!rectsIntersect(fr, placed)) return [fr];
+  const out = [];
+  if(placed.x > fr.x){
+    out.push({x:fr.x, y:fr.y, w:placed.x-fr.x, h:fr.h});
+  }
+  if(placed.x+placed.w < fr.x+fr.w){
+    out.push({x:placed.x+placed.w, y:fr.y, w:(fr.x+fr.w)-(placed.x+placed.w), h:fr.h});
+  }
+  if(placed.y > fr.y){
+    out.push({x:fr.x, y:fr.y, w:fr.w, h:placed.y-fr.y});
+  }
+  if(placed.y+placed.h < fr.y+fr.h){
+    out.push({x:fr.x, y:placed.y+placed.h, w:fr.w, h:(fr.y+fr.h)-(placed.y+placed.h)});
+  }
+  return out;
+}
+function pruneFreeRects(rects){
+  const seen = new Set();
+  const unique = [];
+  for(const r of rects){
+    if(r.w <= 0 || r.h <= 0) continue;
+    const key = `${r.x},${r.y},${r.w},${r.h}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    unique.push(r);
+  }
+  const out = [];
+  for(let i=0;i<unique.length;i++){
+    let contained = false;
+    for(let j=0;j<unique.length;j++){
+      if(i===j) continue;
+      if(isContained(unique[i], unique[j])){ contained = true; break; }
+    }
+    if(!contained) out.push(unique[i]);
+  }
+  return out;
+}
+
+function packSheetsMaxRects(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize){
+  const items = [...pieces].sort((a,b)=> sortKey(b, randomize) - sortKey(a, randomize));
+  const sheets = [];
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+
+  function newSheet(){
+    return { freeRects: [{x:trim, y:trim, w: usableW, h: usableH}], placed: [] };
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let best = null, bestScore = Infinity;
+    for(const fr of sheet.freeRects){
+      const fw1 = item.w + kerf, fh1 = item.h + kerf;
+      if(fw1 <= fr.w && fh1 <= fr.h){
+        const score = Math.min(fr.w - fw1, fr.h - fh1);
+        if(score < bestScore){ bestScore = score; best = { fr, footW: fw1, footH: fh1, pieceW: item.w, pieceH: item.h, rot: false }; }
+      }
+      if(allowRotate){
+        const fw2 = item.h + kerf, fh2 = item.w + kerf;
+        if(fw2 <= fr.w && fh2 <= fr.h){
+          const score = Math.min(fr.w - fw2, fr.h - fh2);
+          if(score < bestScore){ bestScore = score; best = { fr, footW: fw2, footH: fh2, pieceW: item.h, pieceH: item.w, rot: true }; }
+        }
+      }
+    }
+    if(!best) return false;
+
+    const placedFoot = { x: best.fr.x, y: best.fr.y, w: best.footW, h: best.footH };
+    sheet.placed.push({ x: best.fr.x, y: best.fr.y, w: best.pieceW, h: best.pieceH, name: item.name, rot: best.rot, color: item.color });
+
+    let newFree = [];
+    for(const fr of sheet.freeRects){
+      newFree.push(...splitFreeRectByPlaced(fr, placedFoot));
+    }
+    sheet.freeRects = pruneFreeRects(newFree);
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets, tooBig };
+}
+
+
+// ---------- Guillotine packer (straight full-length cuts) ----------
+function packSheetsGuillotine(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize){
+  const items = [...pieces].sort((a,b)=> sortKey(b, randomize) - sortKey(a, randomize));
+  const sheets = [];
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+
+  function newSheet(){
+    return { freeRects: [{x:trim, y:trim, w: usableW, h: usableH}], placed: [] };
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let bestIdx = -1, bestRot = false, bestScore = Infinity, bestW=0, bestH=0;
+    for(let i=0;i<sheet.freeRects.length;i++){
+      const fr = sheet.freeRects[i];
+      if(item.w <= fr.w && item.h <= fr.h){
+        const leftoverW = fr.w - item.w, leftoverH = fr.h - item.h;
+        const score = Math.min(leftoverW, leftoverH);
+        if(score < bestScore){ bestScore = score; bestIdx = i; bestRot=false; bestW=item.w; bestH=item.h; }
+      }
+      if(allowRotate && item.h <= fr.w && item.w <= fr.h){
+        const leftoverW = fr.w - item.h, leftoverH = fr.h - item.w;
+        const score = Math.min(leftoverW, leftoverH);
+        if(score < bestScore){ bestScore = score; bestIdx = i; bestRot=true; bestW=item.h; bestH=item.w; }
+      }
+    }
+    if(bestIdx === -1) return false;
+
+    const fr = sheet.freeRects[bestIdx];
+    const placedW = bestW + kerf, placedH = bestH + kerf;
+    const usedW = Math.min(placedW, fr.w);
+    const usedH = Math.min(placedH, fr.h);
+
+    sheet.placed.push({ x: fr.x, y: fr.y, w: bestW, h: bestH, name: item.name, rot: bestRot, color: item.color });
+
+    const remW = fr.w - usedW;
+    const remH = fr.h - usedH;
+    sheet.freeRects.splice(bestIdx, 1);
+
+    if(remW > 0 && remH > 0){
+      if(remW * fr.h > remH * fr.w){
+        sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: fr.h});
+        sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: usedW, h: remH});
+      } else {
+        sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: fr.w, h: remH});
+        sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: usedH});
+      }
+    } else if(remW > 0){
+      sheet.freeRects.push({x: fr.x+usedW, y: fr.y, w: remW, h: fr.h});
+    } else if(remH > 0){
+      sheet.freeRects.push({x: fr.x, y: fr.y+usedH, w: fr.w, h: remH});
+    }
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets, tooBig };
+}
+
+// ---------- Skyline packer (Bottom-Left, height profile) ----------
+function packSheetsSkyline(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize){
+  const items = [...pieces].sort((a,b)=> sortKey(b, randomize) - sortKey(a, randomize));
+  const sheets = [];
+  const eps = 1e-6;
+
+  const usableW = Math.max(0, sheetW - 2*trim);
+  const usableH = Math.max(0, sheetH - 2*trim);
+  const xMin = trim, xMax = trim + usableW;
+  const yMax = trim + usableH;
+
+  function newSheet(){
+    return { skyline: [{x:xMin, w:usableW, y:trim}], placed: [] };
+  }
+
+  function computeYAt(skyline, x, width){
+    let idx = skyline.findIndex(s => x >= s.x - eps && x < s.x + s.w - eps);
+    if(idx === -1) return null;
+    let y = 0, widthLeft = width, curX = x;
+    while(widthLeft > eps){
+      if(idx >= skyline.length) return null;
+      const seg = skyline[idx];
+      if(seg.x > curX + eps) return null;
+      y = Math.max(y, seg.y);
+      const avail = (seg.x + seg.w) - curX;
+      const use = Math.min(avail, widthLeft);
+      widthLeft -= use;
+      curX += use;
+      idx++;
+    }
+    return y;
+  }
+
+  function updateSkyline(skyline, x, width, newY){
+    const xEnd = x + width;
+    let result = [];
+    for(const seg of skyline){
+      const segEnd = seg.x + seg.w;
+      if(segEnd <= x + eps || seg.x >= xEnd - eps){
+        result.push(seg);
+      } else {
+        if(seg.x < x - eps) result.push({x:seg.x, w:x-seg.x, y:seg.y});
+        if(segEnd > xEnd + eps) result.push({x:xEnd, w:segEnd-xEnd, y:seg.y});
+      }
+    }
+    result.push({x, w:width, y:newY});
+    result.sort((a,b)=>a.x-b.x);
+    const merged = [];
+    for(const seg of result){
+      const last = merged[merged.length-1];
+      if(last && Math.abs(last.y-seg.y) < eps && Math.abs((last.x+last.w)-seg.x) < 1e-4){
+        last.w += seg.w;
+      } else {
+        merged.push({...seg});
+      }
+    }
+    return merged;
+  }
+
+  function tryPlaceInSheet(sheet, item){
+    let best = null;
+    const candidateWidths = [
+      { w: item.w, h: item.h, rot: false },
+      ...(allowRotate ? [{ w: item.h, h: item.w, rot: true }] : [])
+    ];
+    for(const cand of candidateWidths){
+      const footW = cand.w + kerf, footH = cand.h + kerf;
+      if(footW > usableW + eps) continue;
+      for(const seg of sheet.skyline){
+        const x = seg.x;
+        if(x + footW > xMax + eps) continue;
+        const y = computeYAt(sheet.skyline, x, footW);
+        if(y === null) continue;
+        if(y + footH > yMax + eps) continue;
+        if(!best || y < best.y - eps || (Math.abs(y-best.y) < eps && x < best.x - eps)){
+          best = { x, y, footW, footH, pieceW: cand.w, pieceH: cand.h, rot: cand.rot };
+        }
+      }
+    }
+    if(!best) return false;
+    sheet.placed.push({ x: best.x, y: best.y, w: best.pieceW, h: best.pieceH, name: item.name, rot: best.rot, color: item.color });
+    sheet.skyline = updateSkyline(sheet.skyline, best.x, best.footW, best.y + best.footH);
+    return true;
+  }
+
+  for(const item of items){
+    const fitsNormal = item.w <= usableW && item.h <= usableH;
+    const fitsRotated = allowRotate && item.h <= usableW && item.w <= usableH;
+    if(!fitsNormal && !fitsRotated) { item.tooBig = true; continue; }
+    let placed = false;
+    for(const sheet of sheets){
+      if(tryPlaceInSheet(sheet, item)){ placed = true; break; }
+    }
+    if(!placed){
+      const s = newSheet();
+      if(tryPlaceInSheet(s, item)){
+        sheets.push(s);
+        placed = true;
+      } else {
+        item.tooBig = true;
+      }
+    }
+  }
+
+  const tooBig = items.filter(i=>i.tooBig);
+  return { sheets: sheets.map(s => ({ freeRects: [], placed: s.placed })), tooBig };
+}
+
+function sortKey(item, randomize){
+  return randomize ? Math.random() : item.w * item.h;
+}
+
+function packSheets(algo, sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize){
+  if(algo === 'guillotine') return packSheetsGuillotine(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize);
+  if(algo === 'skyline') return packSheetsSkyline(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize);
+  return packSheetsMaxRects(sheetW, sheetH, pieces, allowRotate, kerf, trim, randomize);
+}
+
+// ---------- UI wiring ----------
+function readPieces(){
+  const rows = [...pieceRows.querySelectorAll('tr')];
+  const pieces = [];
+  let colorIdx = 0;
+  for(const row of rows){
+    const name = row.querySelector('.p-name').value.trim() || 'piece';
+    const w = parseFloat(row.querySelector('.p-w').value);
+    const h = parseFloat(row.querySelector('.p-h').value);
+    const q = parseInt(row.querySelector('.p-q').value) || 0;
+    if(!w || !h || !q) continue;
+    const color = COLORS[colorIdx % COLORS.length];
+    colorIdx++;
+    for(let i=0;i<q;i++){
+      pieces.push({ w, h, name, color });
+    }
+  }
+  return pieces;
+}
+
+function piecesOverlap(a, b, eps){
+  return a.x < b.x+b.w-eps && a.x+a.w > b.x+eps && a.y < b.y+b.h-eps && a.y+a.h > b.y+eps;
+}
+function withinBounds(piece, trim, usableW, usableH, eps){
+  return piece.x >= trim-eps && piece.y >= trim-eps &&
+         piece.x+piece.w <= trim+usableW+eps && piece.y+piece.h <= trim+usableH+eps;
+}
+
+function paintCanvas(ctx, sheet, sheetW, sheetH, canvasW, canvasH, scale, trim, displayRotated){
+  ctx.clearRect(0,0,canvasW,canvasH);
+
+  // map a sheet-space rect to canvas pixels — when rotated, swap axes directly (transpose)
+  // instead of a true geometric rotation, so the packed area stays anchored top-left
+  // (matching the familiar "full = top-left, empty = right/bottom" convention)
+  function mapRect(sx, sy, sw, sh){
+    if(displayRotated) return { x: sy*scale, y: sx*scale, w: sh*scale, h: sw*scale };
+    return { x: sx*scale, y: sy*scale, w: sw*scale, h: sh*scale };
+  }
+
+  // trim margin — hatched dead zone around the edge
+  if(trim > 0){
+    const t = trim * scale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0,0,canvasW,canvasH);
+    ctx.rect(t, t, canvasW-2*t, canvasH-2*t);
+    ctx.clip('evenodd');
+    ctx.fillStyle = '#0e1418';
+    ctx.fillRect(0,0,canvasW,canvasH);
+    ctx.strokeStyle = '#3a2a1a';
+    ctx.lineWidth = 1;
+    for(let x = -canvasH; x < canvasW; x += 8){
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x+canvasH, canvasH);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#5a3d20';
+    ctx.setLineDash([4,3]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(t, t, canvasW-2*t, canvasH-2*t);
+    ctx.setLineDash([]);
+  }
+
+  let usedArea = 0;
+  for(const p of sheet.placed){
+    const r = mapRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = p.invalid ? '#ff5f5fcc' : (p.color + (p.dragging ? 'ff' : 'cc'));
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = p.dragging ? '#fff' : '#0e1418';
+    ctx.lineWidth = p.dragging ? 2 : 1.5;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    usedArea += p.w * p.h;
+
+    const label = p.name;
+    const dims = `${Math.round(p.w)}×${Math.round(p.h)}${p.rot ? ' ↻' : ''}`;
+    ctx.fillStyle = '#111';
+    ctx.font = '600 11px monospace';
+    ctx.textBaseline = 'top';
+    if(r.w > 34 && r.h > 16){
+      ctx.fillText(label, r.x+4, r.y+3, r.w-8);
+      if(r.h > 30) ctx.fillText(dims, r.x+4, r.y+16, r.w-8);
+    }
+  }
+
+  ctx.strokeStyle = '#3a4a54';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0,0,canvasW,canvasH);
+
+  if(displayRotated) ctx.restore();
+
+  return usedArea;
+}
+
+// snap a dragged piece's top-left to nearest edge (sheet trim or another piece's edge),
+// offset by the current gap/kerf value, independently on x and y
+// grow a maximal free rectangle around a clicked point, bounded by other pieces & sheet trim
+function growFreeRect(px, py, otherPieces, trim, usableW, usableH, iterations){
+  const boundsL = trim, boundsR = trim+usableW, boundsT = trim, boundsB = trim+usableH;
+  let l=px, r=px, t=py, b=py;
+  for(let i=0; i<(iterations||8); i++){
+    let newL = boundsL;
+    for(const p of otherPieces){ if(p.y < b && p.y+p.h > t && p.x+p.w <= l) newL = Math.max(newL, p.x+p.w); }
+    l = newL;
+    let newR = boundsR;
+    for(const p of otherPieces){ if(p.y < b && p.y+p.h > t && p.x >= r) newR = Math.min(newR, p.x); }
+    r = newR;
+    let newT = boundsT;
+    for(const p of otherPieces){ if(p.x < r && p.x+p.w > l && p.y+p.h <= t) newT = Math.max(newT, p.y+p.h); }
+    t = newT;
+    let newB = boundsB;
+    for(const p of otherPieces){ if(p.x < r && p.x+p.w > l && p.y >= b) newB = Math.min(newB, p.y); }
+    b = newB;
+  }
+  return { x:l, y:t, w:r-l, h:b-t };
+}
+
+function snapPiece(sheet, piece, sheetW, sheetH, trim, kerf){
+  const usableW = sheetW - 2*trim, usableH = sheetH - 2*trim;
+  const others = sheet.placed.filter(p => p !== piece);
+
+  const xCandidates = [trim];
+  const yCandidates = [trim];
+  for(const o of others){
+    xCandidates.push(o.x, o.x + o.w + kerf, o.x - kerf - piece.w);
+    yCandidates.push(o.y, o.y + o.h + kerf, o.y - kerf - piece.h);
+  }
+
+  const tol = Math.max(kerf * 4, sheetW * 0.015);
+
+  let bestX = null, bestXd = tol;
+  for(const cx of xCandidates){
+    const d = Math.abs(cx - piece.x);
+    if(d < bestXd){ bestXd = d; bestX = cx; }
+  }
+  let bestY = null, bestYd = tol;
+  for(const cy of yCandidates){
+    const d = Math.abs(cy - piece.y);
+    if(d < bestYd){ bestYd = d; bestY = cy; }
+  }
+
+  if(bestX !== null) piece.x = bestX;
+  if(bestY !== null) piece.y = bestY;
+
+  // clamp inside sheet bounds
+  piece.x = Math.min(Math.max(piece.x, trim), trim + usableW - piece.w);
+  piece.y = Math.min(Math.max(piece.y, trim), trim + usableH - piece.h);
+}
+
+function buildSheetBlock(sheet, sheetW, sheetH, sheetIdx, trim, kerf, maxCanvasW, maxCanvasH){
+  maxCanvasW = maxCanvasW || 760;
+  maxCanvasH = maxCanvasH || 640;
+
+  // try both orientations and use whichever fills the available space better —
+  // packing math is untouched, this only affects how the sheet is drawn on screen
+  const scaleNormal = Math.min(maxCanvasW / sheetW, maxCanvasH / sheetH, 1);
+  const scaleRotated = Math.min(maxCanvasW / sheetH, maxCanvasH / sheetW, 1);
+  const displayRotated = scaleRotated > scaleNormal;
+  const scale = displayRotated ? scaleRotated : scaleNormal;
+
+  // cw/ch = actual on-screen canvas pixel dimensions
+  const cw = Math.max(1, Math.round((displayRotated ? sheetH : sheetW) * scale));
+  const ch = Math.max(1, Math.round((displayRotated ? sheetW : sheetH) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  canvas.style.touchAction = 'none';
+  canvas.style.cursor = 'grab';
+  const ctx = canvas.getContext('2d');
+
+  const usedArea = paintCanvas(ctx, sheet, sheetW, sheetH, cw, ch, scale, trim, displayRotated);
+  const util = (usedArea / (sheetW*sheetH) * 100).toFixed(1);
+
+  const block = document.createElement('div');
+  block.className = 'sheet-block';
+  const head = document.createElement('div');
+  head.className = 'sheet-head';
+  head.innerHTML = `<span>Sheet <b>#${sheetIdx+1}</b> — ${sheetW}×${sheetH}</span><span>utilization: <b style="color:${util>75?'#4fd1a5':(util>45?'#e0d15f':'#ff5f5f')}">${util}%</b></span>`;
+  block.appendChild(head);
+  block.appendChild(canvas);
+  const hint = document.createElement('div');
+  hint.className = 'kerf-note';
+  hint.style.marginTop = '4px';
+  hint.textContent = 'ลากชิ้นงานเพื่อจัดใหม่ — ปล่อยแล้ว snap ชิดขอบ/ชิ้นอื่นตาม gap อัตโนมัติ ถ้าทับซ้อนหรือล้นกรอบจะดีดกลับที่เดิม แตะพื้นที่ว่างเพื่อดูขนาดที่เหลือ แล้ววางชิ้นงานตรงนั้นได้เลย';
+  block.appendChild(hint);
+  const gapInfo = document.createElement('div');
+  gapInfo.className = 'gap-info';
+  gapInfo.style.display = 'none';
+  block.appendChild(gapInfo);
+
+  // ---- drag interaction ----
+  let dragging = null; // {piece, offsetX, offsetY}
+
+  function toSheetCoords(evt){
+    const rect = canvas.getBoundingClientRect();
+    const px = (evt.clientX - rect.left) * (cw / rect.width);
+    const py = (evt.clientY - rect.top) * (ch / rect.height);
+    if(displayRotated){
+      // inverse of the transpose used in mapRect: swap axes back
+      return { x: py / scale, y: px / scale };
+    }
+    return { x: px / scale, y: py / scale };
+  }
+
+  function hitTest(pt){
+    for(let i = sheet.placed.length - 1; i >= 0; i--){
+      const p = sheet.placed[i];
+      if(pt.x >= p.x && pt.x <= p.x+p.w && pt.y >= p.y && pt.y <= p.y+p.h) return p;
+    }
+    return null;
+  }
+
+  function redraw(){
+    paintCanvas(ctx, sheet, sheetW, sheetH, cw, ch, scale, trim, displayRotated);
+  }
+
+  canvas.addEventListener('pointerdown', (evt) => {
+    const pt = toSheetCoords(evt);
+    const hit = hitTest(pt);
+    if(!hit) return;
+    // bring to front for visual z-order
+    sheet.placed.splice(sheet.placed.indexOf(hit), 1);
+    sheet.placed.push(hit);
+    hit.dragging = true;
+    dragging = { piece: hit, offsetX: pt.x - hit.x, offsetY: pt.y - hit.y, origX: hit.x, origY: hit.y };
+    canvas.style.cursor = 'grabbing';
+    canvas.setPointerCapture(evt.pointerId);
+    redraw();
+  });
+
+  canvas.addEventListener('pointermove', (evt) => {
+    if(!dragging) return;
+    const pt = toSheetCoords(evt);
+    const usableW = sheetW - 2*trim, usableH = sheetH - 2*trim;
+    let nx = pt.x - dragging.offsetX;
+    let ny = pt.y - dragging.offsetY;
+    nx = Math.min(Math.max(nx, trim), trim + usableW - dragging.piece.w);
+    ny = Math.min(Math.max(ny, trim), trim + usableH - dragging.piece.h);
+    dragging.piece.x = nx;
+    dragging.piece.y = ny;
+    const eps = 0.01;
+    const others = sheet.placed.filter(p => p !== dragging.piece);
+    dragging.piece.invalid = others.some(o => piecesOverlap(dragging.piece, o, eps));
+    redraw();
+  });
+
+  function endDrag(evt){
+    if(!dragging) return;
+    const piece = dragging.piece;
+    const eps = 0.01;
+    const usableW = sheetW - 2*trim, usableH = sheetH - 2*trim;
+    const others = sheet.placed.filter(p => p !== piece);
+
+    snapPiece(sheet, piece, sheetW, sheetH, trim, kerf);
+
+    const overlaps = others.some(o => piecesOverlap(piece, o, eps));
+    const outOfBounds = !withinBounds(piece, trim, usableW, usableH, eps);
+    if(overlaps || outOfBounds){
+      // bounce back to where it was before this drag started
+      piece.x = dragging.origX;
+      piece.y = dragging.origY;
+    }
+
+    piece.dragging = false;
+    piece.invalid = false;
+    dragging = null;
+    canvas.style.cursor = 'grab';
+    redraw();
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  canvas.addEventListener('click', (evt) => {
+    const pt = toSheetCoords(evt);
+    if(hitTest(pt)) { gapInfo.style.display = 'none'; return; }
+    const usableW = sheetW - 2*trim, usableH = sheetH - 2*trim;
+    if(pt.x < trim || pt.y < trim || pt.x > trim+usableW || pt.y > trim+usableH) return;
+    const free = growFreeRect(pt.x, pt.y, sheet.placed, trim, usableW, usableH);
+    if(free.w < 5 || free.h < 5) { gapInfo.style.display = 'none'; return; }
+    const suggW = Math.max(0, Math.floor(free.w - kerf));
+    const suggH = Math.max(0, Math.floor(free.h - kerf));
+    gapInfo.innerHTML = `
+      <div>พื้นที่ว่างตรงนี้: <b>${Math.round(free.w)} × ${Math.round(free.h)}</b></div>
+      <div style="margin-top:8px;">
+        <input type="text" class="gap-name" value="Filler" placeholder="ชื่อชิ้นงาน">
+      </div>
+      <div style="display:flex; gap:6px; margin-top:6px;">
+        <input type="number" class="gap-w" value="${suggW}" title="Width">
+        <input type="number" class="gap-h" value="${suggH}" title="Length">
+        <input type="number" class="gap-qty" value="1" min="1" style="max-width:56px;" title="จำนวน">
+      </div>
+      <button type="button" class="gap-add-btn">+ วางชิ้นงานตรงนี้เลย</button>
+      <div style="font-size:9px; color:var(--ink-dim); margin-top:6px;">* กด Calculate/Shake ครั้งถัดไปจะจัดใหม่ทั้งแผ่น ตำแหน่งนี้อาจเปลี่ยน</div>
+    `;
+    gapInfo.style.display = 'block';
+    const addBtn = gapInfo.querySelector('.gap-add-btn');
+    addBtn.onclick = () => {
+      const name = gapInfo.querySelector('.gap-name').value.trim() || 'Filler';
+      let w = parseFloat(gapInfo.querySelector('.gap-w').value) || suggW;
+      let h = parseFloat(gapInfo.querySelector('.gap-h').value) || suggH;
+      const qty = parseInt(gapInfo.querySelector('.gap-qty').value) || 1;
+
+      // clamp requested size to what actually fits in the free area found at the tap point
+      w = Math.min(w, free.w);
+      h = Math.min(h, free.h);
+
+      if(w <= 0 || h <= 0){
+        addBtn.textContent = '✗ ขนาดไม่ถูกต้อง';
+        return;
+      }
+
+      // simple deterministic color per name so repeats match
+      let hash = 0;
+      for(let i=0;i<name.length;i++) hash = (hash*31 + name.charCodeAt(i)) | 0;
+      const color = COLORS[Math.abs(hash) % COLORS.length];
+
+      // place the first piece immediately at the exact tapped spot
+      sheet.placed.push({ x: free.x, y: free.y, w, h, name, rot: false, color });
+
+      // keep remaining quantity (if any) tracked in the pieces list for the next full Calculate
+      addRow(name, w, h, qty);
+
+      redraw();
+      const newUsed = sheet.placed.reduce((a,p)=>a+p.w*p.h,0);
+      const newUtil = (newUsed/(sheetW*sheetH)*100).toFixed(1);
+      head.innerHTML = `<span>Sheet <b>#${sheetIdx+1}</b> — ${sheetW}×${sheetH}</span><span>utilization: <b style="color:${newUtil>75?'#4fd1a5':(newUtil>45?'#e0d15f':'#ff5f5f')}">${newUtil}%</b></span>`;
+
+      addBtn.textContent = qty > 1
+        ? `✓ วาง ${name} ตรงนี้แล้ว 1 ชิ้น — เหลืออีก ${qty-1} ชิ้นรอ Calculate`
+        : `✓ วาง ${name} ตรงนี้แล้ว`;
+      addBtn.disabled = true;
+      addBtn.style.opacity = '0.7';
+      setTimeout(() => { gapInfo.style.display = 'none'; }, 1800);
+    };
+  });
+
+  return { block, usedArea, util: parseFloat(util) };
+}
+
+function run(randomize){
+  const sheetW = parseFloat(document.getElementById('sheetW').value);
+  const sheetH = parseFloat(document.getElementById('sheetH').value);
+  const allowRotate = document.getElementById('allowRotate').checked;
+  const kerf = parseFloat(document.getElementById('kerf').value) || 0;
+  const trim = parseFloat(document.getElementById('trim').value) || 0;
+  const algo = document.getElementById('algoSelect').value;
+
+  const output = document.getElementById('output');
+  const statsBar = document.getElementById('statsBar');
+  output.innerHTML = '';
+
+  if(!sheetW || !sheetH){
+    output.innerHTML = '<div class="empty-state">กรุณากรอกขนาดแผ่นให้ถูกต้อง</div>';
+    statsBar.style.display = 'none';
+    return;
+  }
+
+  const pieces = readPieces();
+  if(pieces.length === 0){
+    output.innerHTML = '<div class="empty-state">เพิ่มชิ้นงานอย่างน้อย 1 รายการ</div>';
+    statsBar.style.display = 'none';
+    return;
+  }
+
+  const { sheets, tooBig } = packSheets(algo, sheetW, sheetH, pieces, allowRotate, kerf, trim, !!randomize);
+
+  const sheetsDiv = document.createElement('div');
+  sheetsDiv.className = 'sheets';
+
+  // size the canvas to the space actually available on screen, instead of a fixed mobile-sized cap
+  const stageAvailW = Math.max(320, output.clientWidth - 4);
+  const canvasMaxW = Math.min(stageAvailW, 1400);
+  const canvasMaxH = Math.min(Math.max(window.innerHeight * 0.75, 420), 1100);
+
+  let totalUsed = 0;
+  sheets.forEach((s, i) => {
+    const { block, usedArea } = buildSheetBlock(s, sheetW, sheetH, i, trim, kerf, canvasMaxW, canvasMaxH);
+    sheetsDiv.appendChild(block);
+    totalUsed += usedArea;
+  });
+
+  // legend
+  const names = {};
+  pieces.forEach(p => { names[p.name] = p.color; });
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  Object.entries(names).forEach(([name, color]) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="swatch" style="background:${color}"></span>${name}`;
+    legend.appendChild(item);
+  });
+  if(trim > 0){
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="swatch" style="background:#0e1418;border:1px dashed #5a3d20"></span>trim margin (${trim})`;
+    legend.appendChild(item);
+  }
+  sheetsDiv.appendChild(legend);
+
+  if(tooBig.length){
+    const warn = document.createElement('div');
+    warn.className = 'empty-state';
+    warn.style.borderColor = '#5a2a2a';
+    warn.style.color = '#ff9d9d';
+    const list = tooBig.map(p => `${p.name} (${p.w}×${p.h})`).join(', ');
+    warn.textContent = `⚠ ชิ้นงานต่อไปนี้ใหญ่เกินกว่าจะวางบนแผ่นได้: ${list}`;
+    sheetsDiv.appendChild(warn);
+  }
+
+  output.appendChild(sheetsDiv);
+
+  const totalSheetArea = sheets.length * sheetW * sheetH;
+  const overallUtil = totalSheetArea ? (totalUsed/totalSheetArea*100).toFixed(1) : 0;
+
+  statsBar.style.display = 'flex';
+  statsBar.innerHTML = `
+    <div class="stat"><div class="v">${sheets.length}</div><div class="l">Sheets needed</div></div>
+    <div class="stat"><div class="v">${pieces.length}</div><div class="l">Total pieces</div></div>
+    <div class="stat ${overallUtil>75?'good':(overallUtil<45?'warn':'')}"><div class="v">${overallUtil}%</div><div class="l">Material utilization</div></div>
+    <div class="stat"><div class="v">${(100-overallUtil).toFixed(1)}%</div><div class="l">Waste</div></div>
+    <div class="stat"><div class="v" style="font-size:14px;">${algo === 'guillotine' ? 'Guillotine' : (algo === 'skyline' ? 'Skyline' : 'MaxRects')}${randomize ? ' 🔀' : ''}</div><div class="l">Algorithm</div></div>
+  `;
+}
+
+document.getElementById('algoSelect').onchange = (e) => {
+  const notes = {
+    guillotine: 'Guillotine: ตัดเป็นเส้นตรงยาวตลอดแผ่นทุกครั้ง เหมาะกับเครื่องตัด/เลื่อยที่ตัดได้แค่แนวตรง',
+    skyline: 'Skyline: จัดวางตามเส้นขอบฟ้าความสูง เร็วและได้ผลดีกว่า guillotine เล็กน้อย รูปแบบการตัดซับซ้อนกว่าเส้นตรงยาว',
+    maxrects: 'MaxRects: อุดช่องว่างเก่งกว่า เศษเหลือน้อยกว่า'
+  };
+  document.getElementById('algoNote').textContent = notes[e.target.value] || notes.maxrects;
+};
+
+document.getElementById('runBtn').onclick = () => run(false);
+document.getElementById('shakeBtn').onclick = () => run(true);
+document.getElementById('printBtn').onclick = () => {
+  if(!document.querySelector('.sheet-block')){
+    alert('กรุณากด Calculate layout ก่อน แล้วค่อย Print');
+    return;
+  }
+  window.print();
+};
+</script>
+</body>
+</html>
